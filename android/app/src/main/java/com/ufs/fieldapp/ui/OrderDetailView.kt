@@ -46,8 +46,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 
 // ═══════════════════════════════════════════════════════════════════════
 // OrderDetailView — Premium Work Order Execution Screen
@@ -60,6 +66,8 @@ fun OrderDetailView(
     voice: VoiceGuidance?,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+
     var photoBeforeBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var photoAfterBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
@@ -68,7 +76,7 @@ fun OrderDetailView(
     ) { bitmap ->
         if (bitmap != null) {
             photoBeforeBitmap = bitmap
-            voice?.speak("Foto del estado inicial registrada.")
+            voice?.speak("Foto de inicio registrada. Tareas de campo habilitadas.")
         }
     }
 
@@ -77,7 +85,61 @@ fun OrderDetailView(
     ) { bitmap ->
         if (bitmap != null) {
             photoAfterBitmap = bitmap
-            voice?.speak("Foto del trabajo terminado registrada.")
+            voice?.speak("Foto de trabajo finalizado registrada. Firma del cliente habilitada.")
+        }
+    }
+
+    val permissionBeforeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            try {
+                cameraBeforeLauncher.launch(null)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error de cámara: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            voice?.speak("Permiso de cámara denegado.")
+        }
+    }
+
+    val permissionAfterLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            try {
+                cameraAfterLauncher.launch(null)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error de cámara: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            voice?.speak("Permiso de cámara denegado.")
+        }
+    }
+
+    val launchCameraBefore = {
+        try {
+            val permissionCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+            if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                cameraBeforeLauncher.launch(null)
+            } else {
+                permissionBeforeLauncher.launch(Manifest.permission.CAMERA)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error al abrir la cámara: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val launchCameraAfter = {
+        try {
+            val permissionCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+            if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                cameraAfterLauncher.launch(null)
+            } else {
+                permissionAfterLauncher.launch(Manifest.permission.CAMERA)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error al abrir la cámara: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -311,7 +373,7 @@ fun OrderDetailView(
                             bitmap = photoBeforeBitmap,
                             icon = Icons.Filled.Info,
                             onClick = {
-                                cameraBeforeLauncher.launch(null)
+                                launchCameraBefore()
                             }
                         )
                         EvidenceCard(
@@ -320,7 +382,12 @@ fun OrderDetailView(
                             bitmap = photoAfterBitmap,
                             icon = Icons.Filled.Star,
                             onClick = {
-                                cameraAfterLauncher.launch(null)
+                                if (itemsChecked.size < totalTasks) {
+                                    voice?.speak("Debe completar todas las tareas de la lista antes de capturar la foto final.")
+                                    Toast.makeText(context, "Complete todas las tareas primero", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    launchCameraAfter()
+                                }
                             }
                         )
                     }
@@ -365,12 +432,18 @@ fun OrderDetailView(
                             task = task,
                             index = index,
                             isChecked = itemsChecked.contains(index),
+                            isEnabled = hasPhotoBefore,
                             onToggle = { checked ->
-                                if (checked) {
-                                    itemsChecked = itemsChecked + index
-                                    voice?.speak("Tarea ${index + 1} completada.")
+                                if (!hasPhotoBefore) {
+                                    voice?.speak("Debe capturar la foto del estado inicial antes de comenzar.")
+                                    Toast.makeText(context, "Tome la foto de antes para habilitar el checklist", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    itemsChecked = itemsChecked - index
+                                    if (checked) {
+                                        itemsChecked = itemsChecked + index
+                                        voice?.speak("Tarea ${index + 1} completada.")
+                                    } else {
+                                        itemsChecked = itemsChecked - index
+                                    }
                                 }
                             }
                         )
@@ -383,9 +456,15 @@ fun OrderDetailView(
                     Spacer(modifier = Modifier.height(10.dp))
                     SignatureCard(
                         isSigned = clientSignatureCaptured,
+                        isEnabled = hasPhotoAfter,
                         onClick = {
-                            clientSignatureCaptured = !clientSignatureCaptured
-                            if (clientSignatureCaptured) voice?.speak("Firma de conformidad registrada.")
+                            if (!hasPhotoAfter) {
+                                voice?.speak("Debe capturar la foto final antes de firmar.")
+                                Toast.makeText(context, "Tome la foto de después para habilitar la firma", Toast.LENGTH_SHORT).show()
+                            } else {
+                                clientSignatureCaptured = !clientSignatureCaptured
+                                if (clientSignatureCaptured) voice?.speak("Firma de conformidad registrada.")
+                            }
                         }
                     )
                 }
@@ -628,6 +707,7 @@ private fun ChecklistItem(
     task: String,
     index: Int,
     isChecked: Boolean,
+    isEnabled: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
     val bgColor by animateColorAsState(
@@ -635,12 +715,18 @@ private fun ChecklistItem(
         animationSpec = tween(300),
         label = "clBg$index"
     )
+    val opacity by animateFloatAsState(
+        targetValue = if (isEnabled) 1.0f else 0.4f,
+        animationSpec = tween(300),
+        label = "clAlpha$index"
+    )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
+            .graphicsLayer(alpha = opacity)
             .clickable { onToggle(!isChecked) }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -698,6 +784,7 @@ private fun ChecklistItem(
 @Composable
 private fun SignatureCard(
     isSigned: Boolean,
+    isEnabled: Boolean,
     onClick: () -> Unit
 ) {
     val bgColor by animateColorAsState(
@@ -705,12 +792,18 @@ private fun SignatureCard(
         animationSpec = tween(400),
         label = "sigBg"
     )
+    val opacity by animateFloatAsState(
+        targetValue = if (isEnabled) 1.0f else 0.4f,
+        animationSpec = tween(400),
+        label = "sigAlpha"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(bgColor)
+            .graphicsLayer(alpha = opacity)
             .drawBehind {
                 drawRoundRect(
                     color = if (isSigned) NeonGreen.copy(alpha = 0.3f) else CyberBorder,
