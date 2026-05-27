@@ -20,7 +20,7 @@ export const UFSLogo: React.FC<UFSLogoProps> = ({
   return (
     <div className={`flex flex-col items-start ${className}`}>
       <img
-        src="https://www.united.cr/wp-content/uploads/2022/06/logo-large-blue.png"
+        src="/logo-ufs.png"
         alt="United Facility Services"
         className={`${dimensions[size].width} ${dimensions[size].height} object-contain filter drop-shadow-[0_0_8px_rgba(0,163,224,0.35)]`}
         onError={(e) => {

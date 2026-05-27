@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   title: "UFS Enterprise Field OS",
   description: "Sistema operativo de gestión operacional en campo para United Facility Services Costa Rica. Automatización con IA, telemetría y despacho inteligente.",
   icons: {
-    icon: "https://www.united.cr/wp-content/uploads/2022/06/logo-large-blue.png",
+    icon: "/logo-ufs.png",
   },
 };
 

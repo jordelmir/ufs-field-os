@@ -188,7 +188,7 @@ fun HomeView(
         // High-density tasks scroll list
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillWeight()
+            modifier = Modifier.fillMaxHeight().weight(1f)
         ) {
             items(orders) { order ->
                 Row(
@@ -255,6 +255,3 @@ fun HomeView(
         }
     }
 }
-
-// Extension to cleanly handle weighting in layout
-fun Modifier.fillWeight() = this.fillMaxHeight().weight(1f, fill = true)

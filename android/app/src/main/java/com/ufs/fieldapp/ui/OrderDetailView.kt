@@ -65,7 +65,7 @@ fun OrderDetailView(
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.Default.ArrowBack,
+                        imageVector = Icons.Filled.ArrowBack,
                         contentDescription = "Volver",
                         tint = UfsSkyBlue
                     )

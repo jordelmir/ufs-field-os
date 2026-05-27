@@ -148,7 +148,7 @@ export const UFSReportDocument: React.FC<PDFReportProps> = ({ ot }) => {
         {/* Header Section */}
         <View style={styles.header}>
           <Image 
-            src="https://www.united.cr/wp-content/uploads/2022/06/logo-large-blue.png" 
+            src="/logo-ufs.png" 
             style={styles.logo} 
           />
           <View style={styles.titleBlock}>
