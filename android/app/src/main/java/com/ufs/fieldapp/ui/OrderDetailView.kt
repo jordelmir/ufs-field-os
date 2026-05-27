@@ -69,23 +69,30 @@ fun OrderDetailView(
     val context = LocalContext.current
 
     var photoBeforeBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var photoAfterBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var selectedTaskIndex by remember { mutableStateOf<Int?>(null) }
+    var taskPhotosAfter by remember { mutableStateOf(mapOf<Int, Bitmap>()) }
 
     val cameraBeforeLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         if (bitmap != null) {
             photoBeforeBitmap = bitmap
-            voice?.speak("Foto de inicio registrada. Tareas de campo habilitadas.")
+            voice?.speak("Foto de inicio registrada. Seleccione una tarea para comenzar.")
         }
     }
 
     val cameraAfterLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
-        if (bitmap != null) {
-            photoAfterBitmap = bitmap
-            voice?.speak("Foto de trabajo finalizado registrada. Firma del cliente habilitada.")
+        if (bitmap != null && selectedTaskIndex != null) {
+            val taskIdx = selectedTaskIndex!!
+            taskPhotosAfter = taskPhotosAfter + (taskIdx to bitmap)
+            voice?.speak("Evidencia de tarea ${taskIdx + 1} registrada. Completada.")
+            
+            // Auto-select the next uncompleted task
+            val totalTasks = 4
+            val nextUncompleted = (0 until totalTasks).firstOrNull { it != taskIdx && !taskPhotosAfter.containsKey(it) }
+            selectedTaskIndex = nextUncompleted
         }
     }
 
@@ -144,12 +151,12 @@ fun OrderDetailView(
     }
 
     val hasPhotoBefore = photoBeforeBitmap != null
-    val hasPhotoAfter = photoAfterBitmap != null
-    var itemsChecked by remember { mutableStateOf(setOf<Int>()) }
+    val totalTasks = 4
+    val hasPhotoAfter = taskPhotosAfter.size == totalTasks
+    val itemsChecked = taskPhotosAfter.keys
     var clientSignatureCaptured by remember { mutableStateOf(false) }
     var orderClosed by remember { mutableStateOf(false) }
 
-    val totalTasks = 4
     val checklist = remember {
         listOf(
             "Desinfección profunda de superficies de contacto",
@@ -159,11 +166,10 @@ fun OrderDetailView(
         )
     }
 
-    val progress = remember(itemsChecked, hasPhotoBefore, hasPhotoAfter, clientSignatureCaptured) {
+    val progress = remember(taskPhotosAfter, hasPhotoBefore, clientSignatureCaptured) {
         var p = 0f
         if (hasPhotoBefore) p += 0.15f
-        if (hasPhotoAfter) p += 0.15f
-        p += (itemsChecked.size.toFloat() / totalTasks) * 0.5f
+        p += (taskPhotosAfter.size.toFloat() / totalTasks) * 0.65f
         if (clientSignatureCaptured) p += 0.2f
         p.coerceIn(0f, 1f)
     }
@@ -174,7 +180,7 @@ fun OrderDetailView(
         label = "progress"
     )
 
-    val canClose = hasPhotoBefore && hasPhotoAfter && itemsChecked.size == totalTasks && clientSignatureCaptured && !orderClosed
+    val canClose = hasPhotoBefore && hasPhotoAfter && clientSignatureCaptured && !orderClosed
 
     Box(
         modifier = Modifier
@@ -378,13 +384,16 @@ fun OrderDetailView(
                         )
                         EvidenceCard(
                             modifier = Modifier.weight(1f),
-                            label = "DESPUÉS",
-                            bitmap = photoAfterBitmap,
+                            label = if (selectedTaskIndex != null) "DESPUÉS T.${selectedTaskIndex!! + 1}" else "DESPUÉS",
+                            bitmap = if (selectedTaskIndex != null) taskPhotosAfter[selectedTaskIndex!!] else null,
                             icon = Icons.Filled.Star,
                             onClick = {
-                                if (itemsChecked.size < totalTasks) {
-                                    voice?.speak("Debe completar todas las tareas de la lista antes de capturar la foto final.")
-                                    Toast.makeText(context, "Complete todas las tareas primero", Toast.LENGTH_SHORT).show()
+                                if (!hasPhotoBefore) {
+                                    voice?.speak("Debe capturar la foto de antes primero.")
+                                    Toast.makeText(context, "Tome la foto de antes primero", Toast.LENGTH_SHORT).show()
+                                } else if (selectedTaskIndex == null) {
+                                    voice?.speak("Seleccione una tarea de la lista para capturar su foto final.")
+                                    Toast.makeText(context, "Seleccione una tarea primero", Toast.LENGTH_SHORT).show()
                                 } else {
                                     launchCameraAfter()
                                 }
@@ -427,22 +436,25 @@ fun OrderDetailView(
 
                 // Checklist items
                 checklist.forEachIndexed { index, task ->
+                    val isChecked = taskPhotosAfter.containsKey(index)
+                    val isSelected = selectedTaskIndex == index
                     item {
                         ChecklistItem(
                             task = task,
                             index = index,
-                            isChecked = itemsChecked.contains(index),
+                            isChecked = isChecked,
+                            isSelected = isSelected,
                             isEnabled = hasPhotoBefore,
-                            onToggle = { checked ->
+                            onToggle = {
                                 if (!hasPhotoBefore) {
                                     voice?.speak("Debe capturar la foto del estado inicial antes de comenzar.")
                                     Toast.makeText(context, "Tome la foto de antes para habilitar el checklist", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    if (checked) {
-                                        itemsChecked = itemsChecked + index
-                                        voice?.speak("Tarea ${index + 1} completada.")
+                                    selectedTaskIndex = index
+                                    if (isChecked) {
+                                        voice?.speak("Tarea ${index + 1} seleccionada. Puede volver a capturar la foto de evidencia.")
                                     } else {
-                                        itemsChecked = itemsChecked - index
+                                        voice?.speak("Tarea ${index + 1} seleccionada. Registre la foto de después para completarla.")
                                     }
                                 }
                             }
@@ -707,13 +719,27 @@ private fun ChecklistItem(
     task: String,
     index: Int,
     isChecked: Boolean,
+    isSelected: Boolean,
     isEnabled: Boolean,
-    onToggle: (Boolean) -> Unit
+    onToggle: () -> Unit
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (isChecked) NeonGreen.copy(alpha = 0.05f) else BgElevated,
+        targetValue = when {
+            isSelected -> NeonCyan.copy(alpha = 0.08f)
+            isChecked -> NeonGreen.copy(alpha = 0.05f)
+            else -> BgElevated
+        },
         animationSpec = tween(300),
         label = "clBg$index"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> NeonCyan
+            isChecked -> NeonGreen.copy(alpha = 0.3f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(300),
+        label = "clBorder$index"
     )
     val opacity by animateFloatAsState(
         targetValue = if (isEnabled) 1.0f else 0.4f,
@@ -726,8 +752,21 @@ private fun ChecklistItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
+            .then(
+                if (isSelected) {
+                    Modifier.drawBehind {
+                        drawRoundRect(
+                            color = borderColor,
+                            cornerRadius = CornerRadius(10.dp.toPx()),
+                            style = Stroke(width = 2f)
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .graphicsLayer(alpha = opacity)
-            .clickable { onToggle(!isChecked) }
+            .clickable { onToggle() }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -737,11 +776,19 @@ private fun ChecklistItem(
                 .size(24.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(
-                    if (isChecked) NeonGreen.copy(alpha = 0.2f) else BgSurface
+                    when {
+                        isChecked -> NeonGreen.copy(alpha = 0.2f)
+                        isSelected -> NeonCyan.copy(alpha = 0.2f)
+                        else -> BgSurface
+                    }
                 )
                 .drawBehind {
                     drawRoundRect(
-                        color = if (isChecked) NeonGreen else CyberBorder,
+                        color = when {
+                            isChecked -> NeonGreen
+                            isSelected -> NeonCyan
+                            else -> CyberBorder
+                        },
                         cornerRadius = CornerRadius(6.dp.toPx()),
                         style = Stroke(width = 2f)
                     )
@@ -755,6 +802,10 @@ private fun ChecklistItem(
                     tint = NeonGreen,
                     modifier = Modifier.size(16.dp)
                 )
+            } else if (isSelected) {
+                Canvas(modifier = Modifier.size(8.dp)) {
+                    drawCircle(color = NeonCyan)
+                }
             }
         }
 
@@ -763,21 +814,27 @@ private fun ChecklistItem(
         Text(
             text = task,
             style = MaterialTheme.typography.bodyMedium.copy(
-                color = if (isChecked) TextSecondary else TextPrimary,
+                color = when {
+                    isSelected -> TextPrimary
+                    isChecked -> TextSecondary
+                    else -> TextPrimary
+                },
                 fontWeight = if (isChecked) FontWeight.Normal else FontWeight.Medium
             ),
             modifier = Modifier.weight(1f)
         )
 
-        if (isChecked) {
-            Text(
-                text = "LISTO",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    color = NeonGreen,
-                    fontWeight = FontWeight.Bold
-                )
+        Text(
+            text = when {
+                isChecked -> "LISTO"
+                isSelected -> "EN PROCESO"
+                else -> ""
+            },
+            style = MaterialTheme.typography.labelSmall.copy(
+                color = if (isChecked) NeonGreen else NeonCyan,
+                fontWeight = FontWeight.Bold
             )
-        }
+        )
     }
 }
 
